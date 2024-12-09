@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin Analysis Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        #chart-container {
+            width: 80%;
+            margin: 0 auto;
+        }
+
+        .container {
+            margin-bottom: 20px;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Bitcoin Analysis Tool</h1>
+    <div class="container">
+        <label for="start-date">Start Date:</label>
+        <input type="date" id="start-date" name="start-date">
+    </div>
+    <div class="container">
+        <label for="end-date">End Date:</label>
+        <input type="date" id="end-date" name="end-date">
+    </div>
+    <button onclick="fetchData()">Analyze</button>
+
+    <div id="results" class="result">
+        <p><strong>Lowest Price:</strong> <span id="lowest-price"></span></p>
+        <p><strong>Highest Price:</strong> <span id="highest-price"></span></p>
+        <p><strong>Lowest Volume:</strong> <span id="lowest-volume"></span></p>
+        <p><strong>Highest Volume:</strong> <span id="highest-volume"></span></p>
+        <p><strong>Longest Bearish Trend:</strong> <span id="bearish-trend"></span> days</p>
+        <p><strong>Longest Bullish Trend:</strong> <span id="bullish-trend"></span> days</p>
+        <p><strong>Best Buy/Sell Day:</strong> <span id="best-buy-sell"></span></p>
+    </div>
+
+    <div id="chart-container">
+        <canvas id="bitcoinChart"></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        async function fetchData() {
+            const startDate = document.getElementById("start-date").value;
+            const endDate = document.getElementById("end-date").value;
+
+            if (!startDate || !endDate) {
+                alert("Please select both start and end dates.");
+                return;
+            }
+
+
+            const startTimestamp = new Date(startDate).getTime() / 1000;
+            const endTimestamp = new Date(endDate).getTime() / 1000 + 3600;
+
+
+            const url = `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range?vs_currency=eur&from=${startTimestamp}&to=${endTimestamp}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (response.ok) {
+             
+                    const prices = data.prices.map(item => ({ date: new Date(item[0]).toLocaleDateString(), price: item[1] }));
+                    const volumes = data.total_volumes.map(item => ({ date: new Date(item[0]).toLocaleDateString(), volume: item[1] }));
+
+                    const { lowestPrice, highestPrice, lowestVolume, highestVolume, longestBearish, longestBullish, bestBuySell } = analyzeData(prices, volumes);
+
+                    
+                    document.getElementById("lowest-price").innerText = `${lowestPrice.date} - €${lowestPrice.price.toFixed(2)}`;
+                    document.getElementById("highest-price").innerText = `${highestPrice.date} - €${highestPrice.price.toFixed(2)}`;
+                    document.getElementById("lowest-volume").innerText = `${lowestVolume.date} - €${lowestVolume.volume.toFixed(2)}`;
+                    document.getElementById("highest-volume").innerText = `${highestVolume.date} - €${highestVolume.volume.toFixed(2)}`;
+                    document.getElementById("bearish-trend").innerText = longestBearish;
+                    document.getElementById("bullish-trend").innerText = longestBullish;
+                    document.getElementById("best-buy-sell").innerText = `${bestBuySell.buy.date} - €${bestBuySell.buy.price.toFixed(2)} / ${bestBuySell.sell.date} - €${bestBuySell.sell.price.toFixed(2)}`;
+
+                   
+                    drawChart(prices);
+                } else {
+                    console.error('Error fetching data:', response.status, data);
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+
+
+
+        function analyzeData(prices, volumes) {
+            const lowestPrice = prices.reduce((min, p) => p.price < min.price ? p : min, prices[0]);
+            const highestPrice = prices.reduce((max, p) => p.price > max.price ? p : max, prices[0]);
+
+            const lowestVolume = volumes.reduce((min, v) => v.volume < min.volume ? v : min, volumes[0]);
+            const highestVolume = volumes.reduce((max, v) => v.volume > max.volume ? v : max, volumes[0]);
+
+            let longestBearish = 0, longestBullish = 0, currentBearish = 0, currentBullish = 0;
+            for (let i = 1; i < prices.length; i++) {
+                if (prices[i].price < prices[i - 1].price) {
+                    currentBearish++;
+                    longestBearish = Math.max(longestBearish, currentBearish);
+                    currentBullish = 0;
+                } else if (prices[i].price > prices[i - 1].price) {
+                    currentBullish++;
+                    longestBullish = Math.max(longestBullish, currentBullish);
+                    currentBearish = 0;
+                }
+            }
+
+            let maxProfit = 0;
+            let bestBuySell = { buy: prices[0], sell: prices[0] };
+            for (let i = 0; i < prices.length; i++) {
+                for (let j = i + 1; j < prices.length; j++) {
+                    const profit = prices[j].price - prices[i].price;
+                    if (profit > maxProfit) {
+                        maxProfit = profit;
+                        bestBuySell = { buy: prices[i], sell: prices[j] };
+                    }
+                }
+            }
+
+            return { lowestPrice, highestPrice, lowestVolume, highestVolume, longestBearish, longestBullish, bestBuySell };
+        }
+
+       
+        let chartInstance = null;
+
+        function drawChart(prices) {
+            const ctx = document.getElementById('bitcoinChart').getContext('2d');
+
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const chartData = {
+                labels: prices.map(item => item.date),
+                datasets: [{
+                    label: 'Bitcoin Price (EUR)',
+                    data: prices.map(item => item.price),
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    fill: false
+                }]
+            };
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { type: 'category' },
+                        y: { beginAtZero: false }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
